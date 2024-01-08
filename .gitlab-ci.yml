@@ -1,0 +1,74 @@
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Terraform.gitlab-ci.yml
+
+include:
+  - template: Terraform/Base.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Terraform/Base.gitlab-ci.yml
+#  - template: Jobs/SAST-IaC.gitlab-ci.yml   # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/SAST-IaC.gitlab-ci.yml
+
+variables:
+  #If your terraform files are in a subdirectory, set TF_ROOT accordingly. For example:
+  TF_ROOT: terraform
+  #TF_ROOT: ${CI_PROJECT_DIR}  # The relative path to the root directory of the Terraform project
+  TF_STATE_NAME: ${CI_PROJECT_NAME}
+  TF_CACHE_KEY: default
+
+default:
+  before_script:
+    - cp ./packet.loss.crt /usr/local/share/ca-certificates/
+    - update-ca-certificates
+    #- cat $KUBECONFIG_FILE >> ./kubeconfig
+
+stages:
+  - validate
+  - build
+  - deploy
+  - destroy
+
+image: registry.gitlab.com/gitlab-org/terraform-images/branches/alexand-master-patch-1ad6-1.5:12db7214dcc2e2ec5b7e7be4dd54a0e58f76bc9b
+
+terraform:validate: &terraform_validate
+  tags:
+    - docker
+  stage: validate
+  script:
+    - cd "${TF_ROOT}"
+    - echo $KUBECONFIG
+    - gitlab-terraform validate
+
+terraform:build: &terraform_build
+  tags:
+    - docker
+  stage: build
+  script:
+    - cd "${TF_ROOT}"
+    - gitlab-terraform init
+    - gitlab-terraform plan
+    - gitlab-terraform plan-json
+  resource_group: ${TF_STATE_NAME}
+  artifacts:
+    paths:
+      - ${TF_ROOT}/plan.cache
+    reports:
+      terraform: ${TF_ROOT}/plan.json
+
+terraform:deploy: &terraform_deploy
+  tags:
+    - docker
+  stage: deploy
+  script:
+    - cd "${TF_ROOT}"
+    - gitlab-terraform apply
+  resource_group: ${TF_STATE_NAME}
+  when: manual
+
+terraform:destroy: &terraform_destroy
+  tags:
+    - docker
+  stage: destroy
+  script:
+    - cd "${TF_ROOT}"
+    - gitlab-terraform destroy
+  resource_group: ${TF_STATE_NAME}
+  when: manual
